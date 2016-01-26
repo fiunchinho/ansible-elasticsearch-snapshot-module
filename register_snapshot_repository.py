@@ -50,10 +50,16 @@ options:
       - Name of the repository where snapshots will be saved
     default: null
     required: true
-  profile:
+  aws_access_key:
     description:
-      - Boto profile to use.
+      - AWS access key to sign the requests.
     required: true
+    aliases: ['aws_access_key', 'ec2_access_key']
+  aws_secret_key:
+    description:
+      - AWS secret key to sign the requests.
+    required: true
+    aliases: ['aws_secret_key', 'ec2_secret_key']
 requirements:
   - "python >= 2.6"
   - boto
@@ -62,8 +68,9 @@ requirements:
 EXAMPLES = '''
 
 - register_snapshot_repository:
-    profile: "pro"
     region: "eu-west-1"
+    aws_access_key: "AKIAJ5CC6CARRKOX5V7Q"
+    aws_secret_key: "cfDKFSXEo1CC6gfhfhCARRKOX5V7Q"
     elasticsearch_host: "logs-q213lkjalsjda.eu-west-1.es.amazonaws.com"
     role_arn: "arn:aws:iam::1234456778:role/S3ElasticSearchLogs"
     bucket: "logs"
@@ -78,9 +85,7 @@ except ImportError:
 def main():
     argument_spec = ec2_argument_spec()
     argument_spec.update(dict(
-            region = dict(required=True, aliases = ['aws_region', 'ec2_region']),
-            es_host = dict(required=True, aliases = ['elasticsearch_host']),
-            profile = dict(required=True),
+            host = dict(required=True, aliases = ['elasticsearch_host']),
             role_arn = dict(required=True),
             bucket = dict(required=True),
             repository_name = dict(required=True, aliases = ['snapshot_repository_name']),
@@ -95,7 +100,7 @@ def main():
         module.fail_json(msg='boto required for this module, install via pip or your package manager')
 
     try:
-        aws_auth_connection = ESConnection(profile_name=module.params.get('profile'), region=module.params.get('region'), host=module.params.get('es_host'), is_secure=False)
+        aws_auth_connection = ESConnection(aws_access_key_id=module.params.get('aws_access_key'), aws_secret_access_key=module.params.get('aws_secret_key'), region=module.params.get('region'), host=module.params.get('host'), is_secure=False)
     except (boto.exception.NoAuthHandlerFound, StandardError), e:
         module.fail_json(msg=str(e))
 
