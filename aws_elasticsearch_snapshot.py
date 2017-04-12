@@ -18,6 +18,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this software.  If not, see <http://www.gnu.org/licenses/>.
 
+from ansible.module_utils.basic import *
+from ansible.module_utils.ec2 import *
+from boto.connection import AWSAuthConnection
+
 DOCUMENTATION = """
 ---
 module: aws_elasticsearch_snapshot
@@ -66,6 +70,10 @@ options:
       - AWS secret key to sign the requests.
     required: true
     aliases: ['aws_secret_key', 'ec2_secret_key']
+  profile:
+    description:
+      - Profile from .aws/credentials file to use for authenticating with AWS
+    required false
 requirements:
   - "python >= 2.6"
   - boto
@@ -84,33 +92,38 @@ EXAMPLES = '''
 
 - aws_elasticsearch_snapshot:
     region: "eu-west-1"
-    aws_access_key: "AKIAJ5CC6CARRKOX5V7Q"
-    aws_secret_key: "cfDKFSXEo1CC6gfhfhCARRKOX5V7Q"
+    profile: "production"
     elasticsearch_host: "logs-q213lkjalsjda.eu-west-1.es.amazonaws.com"
     snapshot_repository_name: "s3snapshots"
     snapshot_name: "2016-02-01"
 '''
 try:
     import boto.ec2
-    HAS_BOTO=True
-except ImportError:
-    HAS_BOTO=False
 
-def get_elasticsearch_connection(aws_access_key, aws_secret_key, region, host):
-    return ESConnection(aws_access_key_id=aws_access_key, aws_secret_access_key=aws_secret_key, region=region, host=host, is_secure=False)
+    HAS_BOTO = True
+except ImportError:
+    HAS_BOTO = False
+    boto = None
+
+
+def get_elasticsearch_connection(aws_access_key, aws_secret_key, region, host, profile_name):
+    return ESConnection(aws_access_key_id=aws_access_key, aws_secret_access_key=aws_secret_key,
+                        region=region, host=host, is_secure=False, profile_name=profile_name)
 
 
 def create_snapshot_repository(es_connection, repository_name, bucket, region, role_arn):
     return es_connection.make_request(
-            method='POST',
-            path='/_snapshot/' + repository_name,
-            data='{"type": "s3", "settings": { "bucket": "' + bucket + '", "region": "' + region + '", "role_arn": "' + role_arn + '"}}')
+        method='POST',
+        path='/_snapshot/' + repository_name,
+        data='{"type": "s3", "settings": { "bucket": "' + bucket + '", "region": "' + region +
+             '", "role_arn": "' + role_arn + '"}}')
 
 
 def take_snapshot(es_connection, repository_name, snapshot_name):
     return es_connection.make_request(
-            method='PUT',
-            path='/_snapshot/' + repository_name + '/' + snapshot_name)
+        method='PUT',
+        path='/_snapshot/' + repository_name + '/' + snapshot_name)
+
 
 def do_main(module):
     repository_name = module.params.get('repository_name')
@@ -121,8 +134,10 @@ def do_main(module):
     aws_access_key = module.params.get('aws_access_key')
     aws_secret_key = module.params.get('aws_secret_key')
     host = module.params.get('host')
+    profile_name = module.params.get('profile')
 
-    es_connection = get_elasticsearch_connection(aws_access_key, aws_secret_key, region, host)
+    es_connection = get_elasticsearch_connection(aws_access_key, aws_secret_key, region, host,
+                                                 profile_name)
 
     if bucket and role_arn:
         return create_snapshot_repository(es_connection, repository_name, bucket, region, role_arn)
@@ -131,37 +146,33 @@ def do_main(module):
     else:
         raise ValueError('Required parameters are missing')
 
+
 def main():
     argument_spec = ec2_argument_spec()
     argument_spec.update(dict(
-            host = dict(required=True, aliases = ['elasticsearch_host']),
-            role_arn = dict(),
-            bucket = dict(),
-            snapshot_name = dict(),
-            repository_name = dict(required=True, aliases = ['snapshot_repository_name']),
-        )
+        host=dict(required=True, aliases=['elasticsearch_host']),
+        role_arn=dict(),
+        bucket=dict(),
+        snapshot_name=dict(),
+        repository_name=dict(required=True, aliases=['snapshot_repository_name']),
+    )
     )
 
-    module = AnsibleModule(
+    ansible_module = AnsibleModule(
         argument_spec=argument_spec,
     )
 
     if not HAS_BOTO:
-        module.fail_json(msg='boto required for this module, install via pip or your package manager')
+        ansible_module.fail_json(msg='boto required for this module, install via pip or '
+                                     'your package manager')
 
     try:
-        module.exit_json(changed=True, resp=do_main(module).read())
+        ansible_module.exit_json(changed=True, resp=do_main(ansible_module).read())
     except (boto.exception.NoAuthHandlerFound, StandardError), e:
-        module.fail_json(msg=str(e))
+        ansible_module.fail_json(msg=str(e))
 
-
-# import module snippets
-from ansible.module_utils.basic import *
-from ansible.module_utils.ec2 import *
-from boto.connection import AWSAuthConnection
 
 class ESConnection(AWSAuthConnection):
-
     def __init__(self, region, **kwargs):
         super(ESConnection, self).__init__(**kwargs)
         self._set_auth_region_name(region)
@@ -169,6 +180,7 @@ class ESConnection(AWSAuthConnection):
 
     def _required_auth_capability(self):
         return ['hmac-v4']
+
 
 if __name__ == '__main__':
     main()
